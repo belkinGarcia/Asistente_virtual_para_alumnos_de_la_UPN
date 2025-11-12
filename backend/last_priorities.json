@@ -1,0 +1,19 @@
+{
+    "horas_estudio_min": 30,
+    "horas_ejercicio_min": 10,
+    "horas_trabajo_min": 25,
+    "sueno_min": 49,
+    "estudio_inicio": "08:00 am",
+    "estudio_fin": "02:00 pm",
+    "ejercicio_inicio": "06:00 am",
+    "ejercicio_fin": "08:00 am",
+    "trabajo_inicio": "03:00 pm",
+    "trabajo_fin": "08:00 pm",
+    "sueno_inicio": "10:00 pm",
+    "sueno_fin": "05:00 am",
+    "estudio_fin_miercoles": "null",
+    "trabajo_inicio_miercoles": "null",
+    "estudio_fin_jueves": "null",
+    "trabajo_inicio_jueves": "null",
+    "otras_actividades": []
+}
