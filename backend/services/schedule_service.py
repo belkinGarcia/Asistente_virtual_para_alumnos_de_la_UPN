@@ -1,200 +1,179 @@
-from datetime import datetime, timedelta
-import unicodedata
-import logging
-# Importación corregida a ruta absoluta del paquete
-from backend.utils.config_utils import normalize_day
+# schedule_service.py - CORREGIDO (FIX DE 'list' object has no attribute 'get')
 
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+import os
+import json
+import google.generativeai as genai
+from google.generativeai import types
+from flask import jsonify
 
-def parse_time(time_str):
-    """Convierte una cadena de hora (ej. '08:00am') a un objeto datetime."""
-    time_str = str(time_str).replace(' ', '').lower()
-    if not time_str:
-        return datetime.max
+# Importaciones relativas al paquete padre (backend)
+from ..models import ml_model 
+from ..utils import config_utils
+
+# --- CONFIGURACIÓN E INICIALIZACIÓN ---
+# --- CONFIGURACIÓN E INICIALIZACIÓN ---
+try:
+    API_KEY = config_utils.cargar_api_key() 
+    genai.configure(api_key=API_KEY)
+    # Crea una instancia del modelo que usarás
+    model_client = genai.GenerativeModel('gemini-2.5-flash')
+    print("Cliente Gemini inicializado correctamente.")
+except Exception as e:
+    print(f"Error al inicializar el cliente Gemini: {e}")
+    model_client = None
+
+# Archivos de persistencia
+LAST_PRIORITIES_FILE = 'last_priorities.json'
+
+# --- INTERFACES DE DATOS (TOOLING) ---
+PLAN_SEMANAL_TOOL_DICT = {
+    "name": "PlanSemanal",
+    "description": "Genera un plan de estudio semanal detallado.",
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "planSemanal": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "dia": {"type": "string"},
+                        "actividad": {"type": "string"},
+                        "horas": {"type": "number"},
+                        "prioridad": {"type": "string"}
+                    }
+                }
+            }
+        },
+        "required": ["planSemanal"]
+    }
+}
+
+# ... (Funciones load/save_last_priorities omitidas por brevedad) ...
+def load_last_priorities():
+    if os.path.exists(LAST_PRIORITIES_FILE):
+        with open(LAST_PRIORITIES_FILE, 'r') as f:
+            return json.load(f)
+    return None
+
+def save_last_priorities(data):
+    with open(LAST_PRIORITIES_FILE, 'w') as f:
+        json.dump(data, f, indent=4)
+
+# --- FUNCIONES CORE ---
+
+def format_history_for_gemini(history: list) -> list:
+    """
+    Convierte la lista de mensajes de Angular al formato requerido por Gemini, 
+    filtrando elementos no diccionario.
+    """
+    formatted_contents = []
+    for message in history:
+        # FIX CRÍTICO: Filtra elementos que no son diccionarios
+        if not isinstance(message, dict):
+            continue
+            
+        role = message.get('role', 'user')
+        gemini_role = 'model' if role == 'assistant' else role
+        text_content = message.get('text', '')
         
+        if text_content: 
+            formatted_contents.append({
+                "role": gemini_role,
+                "parts": [{"text": text_content}] 
+            })
+    return formatted_contents
+
+
+def generate_schedule(prompt: str, study_hours_recommendation: float):
+    """Genera un horario semanal usando la función PlanSemanal."""
+    if not model_client:
+        return {"error": "El cliente Gemini no está inicializado."}, 500
+
     try:
-        dt = datetime.strptime(time_str, '%I:%M%p')
-        return dt
-    except ValueError:
-        try:
-            dt = datetime.strptime(time_str, '%H:%M') 
-            return dt
-        except ValueError:
-            logging.error(f"Formato de hora no reconocido: {time_str}")
-            return datetime.max
+        function_declaration = types.FunctionDeclaration.from_dict(PLAN_SEMANAL_TOOL_DICT)
+        tool_config = types.Tool(function_declarations=[function_declaration])
         
-def get_sort_key(item):
-    """Clave de ordenamiento: Día (índice) + Hora (segundos desde medianoche)."""
-    dias_semana = ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado', 'Domingo']
-    try:
-        dia_index = dias_semana.index(item['Dia'])
-    except ValueError:
-        dia_index = 99 
-        
-    hora_dt = parse_time(item['Hora'])
+        config = types.GenerateContentConfig(
+            tools=[tool_config] 
+        )
+    except Exception as e:
+        return {"error": f"Error al configurar la herramienta Gemini: {e}"}, 500
+
+    system_instruction = (
+        f"Eres un planificador de horarios experto. Utiliza la función PlanSemanal "
+        f"para generar una respuesta. La recomendación clave de ML es: planifica un total de {study_hours_recommendation:.1f} "
+        f"horas de estudio académico a la semana..."
+    )
     
-    hora_sort = hora_dt.hour * 3600 + hora_dt.minute * 60 + hora_dt.second
-    
-    return f"{dia_index:02d}{hora_sort:06d}"
+    response = model_client.generate_content(
+        contents=[{"role": "user", "parts": [{"text": prompt}]}],
+        generation_config=config, # Renombrado a generation_config
+        system_instruction=system_instruction
+    )
 
-def detectar_conflictos(horario_base):
-    """Revisa el horario consolidado y detecta solapamientos reales."""
-    conflictos = []
-    
-    # Exclusión de bloques que inician a las 10:00pm y terminan a las 5:00am al día siguiente
-    def get_actual_fin_dt(actual):
-        actual_fin_dt = parse_time(actual['Hora_Fin'])
-        if actual['Actividad'].startswith('Dormir'):
-            # El bloque de dormir termina al día siguiente, ajustamos el tiempo de fin para ordenar
-            inicio_dt = parse_time(actual['Hora'])
-            fin_dt_despertar = parse_time(actual['Hora_Fin'])
-            if inicio_dt.hour >= 12 and fin_dt_despertar.hour < 12:
-                return fin_dt_despertar + timedelta(days=1)
-        return actual_fin_dt
-
-    horario_ordenado = sorted(horario_base, key=get_sort_key)
-    
-    for i in range(len(horario_ordenado) - 1):
-        actual = horario_ordenado[i]
-        siguiente = horario_ordenado[i+1]
+    if response.function_calls:
+        function_call = response.function_calls[0]
+        schedule_data = function_call.args
+        config_utils.guardar_prioridad(schedule_data) # Usa la función correctamente
         
-        if actual['Dia'] == siguiente['Dia']:
-            
-            actual_fin_dt = get_actual_fin_dt(actual)
-            siguiente_inicio_dt = parse_time(siguiente['Hora'])
-            
-            # Solo detecta conflicto si el fin de la actividad actual se solapa con el inicio de la siguiente
-            if actual_fin_dt > siguiente_inicio_dt:
-                conflictos.append({
-                    "Dia": actual['Dia'],
-                    "Actividad_1": actual['Actividad'],
-                    "Hora_1": f"{actual['Hora']} - {actual['Hora_Fin']}",
-                    "Actividad_2": siguiente['Actividad'],
-                    "Hora_2": f"{siguiente['Hora']} - {siguiente['Hora_Fin']}"
-                })
-                
-    return conflictos
+        return {
+            "role": "assistant",
+            "text": f"He generado un plan para ti. Deberías enfocarte en aproximadamente {study_hours_recommendation:.1f} horas de estudio a la semana.",
+            "horario": schedule_data
+        }
 
-def generar_recomendacion(prioridades, filtro_dia, dia_seleccionado):
-    """Genera un horario semanal condensado basado en prioridades."""
-    
-    dias_semana = ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado', 'Domingo']
-    horario_base = []
-
-    actividades_prioritarias = [
-        ('estudio', 'Académico'),
-        ('ejercicio', 'Físico'),
-        ('trabajo', 'Laboral'),
-    ]
-
-    for dia in dias_semana:
-        
-        dia_normalized = normalize_day(dia)
-        dia_eventos = []
-        
-        hora_despertar = prioridades.get('sueno_fin', '06:00 am')
-        hora_dormir = prioridades.get('sueno_inicio', '10:00 pm')
-        sueno_min = prioridades.get('sueno_min', 8)
-        
-        dia_eventos.append({'Dia': dia, 'Hora': hora_despertar, 'Actividad': 'Despertar y Desayuno', 'Prioridad': 'Bienestar', 'Tipo': 'Fijo', 'Fin_Hora': hora_despertar})
-        dia_eventos.append({'Dia': dia, 'Hora': hora_dormir, 'Actividad': f"Dormir ({sueno_min}h)", 'Prioridad': 'Sueño', 'Tipo': 'Dormir', 'Fin_Hora': hora_despertar})
+    return {
+        "role": "assistant",
+        "text": "Lo siento, no pude generar un horario. ¿Podrías ser más específico con tu solicitud?",
+    }
 
 
-        if dia in ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes']:
-            
-            for actividad, prioridad_tipo in actividades_prioritarias:
-                
-                inicio_key_specific = f'{actividad}_inicio_{dia_normalized}'
-                fin_key_specific = f'{actividad}_fin_{dia_normalized}'
-                
-                # Prioriza el valor específico del día, si no existe, usa el valor base.
-                inicio = prioridades.get(inicio_key_specific) or prioridades.get(f'{actividad}_inicio')
-                fin = prioridades.get(fin_key_specific) or prioridades.get(f'{actividad}_fin')
-                
-                if inicio and fin:
-                    dia_eventos.append({
-                        'Dia': dia, 'Hora': inicio, 'Actividad': f"Bloque de {actividad.capitalize()}", 
-                        'Prioridad': prioridad_tipo, 'Fin_Hora': fin, 'Tipo': 'Principal'
-                    })
-                    
-            dia_eventos.append({'Dia': dia, 'Hora': '12:00 pm', 'Actividad': 'Almuerzo y Pausa Activa', 'Prioridad': 'Bienestar', 'Tipo': 'Principal', 'Fin_Hora': '01:00 pm'})
-            
-            for actividad_extra in prioridades.get('otras_actividades', []):
-                dias_aplicables = actividad_extra.get('dias', 'Todos').upper()
-                
-                aplica_a_hoy = 'TODOS' in dias_aplicables or dia.upper() in dias_aplicables or ('LUNES-VIERNES' in dias_aplicables and dia in ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes'])
+def process_chat(chat_history: list) -> dict:
+    """Función de entrada principal. Maneja la conversación y detecta si se debe generar un horario."""
+    if not model_client:
+        return {"role": "assistant", "text": "Error: El servicio de IA no está disponible."}
 
-                if aplica_a_hoy:
-                    nombre = actividad_extra.get('nombre', 'Actividad Extra')
-                    inicio = actividad_extra.get('inicio')
-                    fin = actividad_extra.get('fin')
-                    
-                    prioridad_tipo_extra = 'Académico' if 'examen' in nombre.lower() or 'cita' in nombre.lower() or 'conferencia' in nombre.lower() else 'Ocio'
-                    
-                    if inicio and fin:
-                        dia_eventos.append({
-                            'Dia': dia, 'Hora': inicio, 'Actividad': nombre, 
-                            'Prioridad': prioridad_tipo_extra, 'Fin_Hora': fin, 'Tipo': 'Extra'
-                        })
+    # 1. Buscar el último mensaje del asistente EN EL HISTORIAL CRUDO
+    # 1. ...
+    last_assistant_message = next((
+    m for m in reversed(chat_history) 
+    if isinstance(m, dict) and m.get('role') == 'assistant'
+    ), None)
 
-        elif dia == 'Sábado':
-            dia_eventos.append({'Dia': dia, 'Hora': '10:00 am', 'Actividad': 'Bloque Flexible (Repaso/Ocio)', 'Prioridad': 'Flexible', 'Tipo': 'Principal', 'Fin_Hora': '12:00 pm'})
-            dia_eventos.append({'Dia': dia, 'Hora': '12:00 pm', 'Actividad': 'Almuerzo y Pausa Activa', 'Prioridad': 'Bienestar', 'Tipo': 'Principal', 'Fin_Hora': '01:00 pm'})
+    # 2. Comprobar si el bot ACABA de enviar un horario
+    # Si el último mensaje del bot tiene la clave 'horario', significa que acabamos de enviarlo.
+    # No debemos generar otro, sino continuar la conversación normal.
+    just_sent_schedule = False
+    if last_assistant_message and 'horario' in last_assistant_message:
+        just_sent_schedule = True
 
-        elif dia == 'Domingo':
-            dia_eventos.append({'Dia': dia, 'Hora': '10:00 am', 'Actividad': 'Descanso / Planificación Semanal', 'Prioridad': 'Bienestar', 'Tipo': 'Principal', 'Fin_Hora': '12:00 pm'})
-            dia_eventos.append({'Dia': dia, 'Hora': '12:00 pm', 'Actividad': 'Almuerzo y Pausa Activa', 'Prioridad': 'Bienestar', 'Tipo': 'Principal', 'Fin_Hora': '01:00 pm'})
+    # 3. Formatear el historial para Gemini (esto no cambia)
+    formatted_contents = format_history_for_gemini(chat_history)
 
-        dia_eventos_ordenados = sorted(dia_eventos, key=get_sort_key)
-        
-        bloques_consolidados = []
-        for i, evento in enumerate(dia_eventos_ordenados):
-            
-            if evento['Tipo'] in ['Principal', 'Extra', 'Dormir', 'Fijo']:
-                
-                inicio_dt = parse_time(evento['Hora'])
-                explicit_fin_dt = parse_time(evento.get('Fin_Hora', ''))
-                
-                fin_dt = explicit_fin_dt
-                
-                # Manejo de Bloque de Dormir que cruza la medianoche
-                if evento['Tipo'] == 'Dormir':
-                    fin_dt_despertar = parse_time(hora_despertar)
-                    if inicio_dt.hour >= 12 and fin_dt_despertar.hour < 12:
-                        fin_dt = fin_dt_despertar + timedelta(days=1)
-                    else:
-                        fin_dt = fin_dt_despertar
-                        
-                # Recortar el bloque si choca con el inicio del siguiente bloque de mayor prioridad
-                if i + 1 < len(dia_eventos_ordenados):
-                    siguiente_inicio_dt = parse_time(dia_eventos_ordenados[i+1]['Hora'])
-                    
-                    if fin_dt > siguiente_inicio_dt:
-                        fin_dt = siguiente_inicio_dt
-                
-                if fin_dt <= inicio_dt:
-                    continue
+    # 4. Obtener el último prompt del usuario (esto no cambia)
+    latest_user_message = next((m for m in reversed(formatted_contents) if m.get('role') == 'user'), None)
 
-                duration_seconds = (fin_dt - inicio_dt).total_seconds()
-                duracion_horas = round(duration_seconds / 3600, 1)
-
-                if duracion_horas > 0:
-                    bloques_consolidados.append({
-                        'Dia': evento['Dia'],
-                        'Hora': evento['Hora'].replace(' ', '').lower(),
-                        'Hora_Fin': fin_dt.strftime('%I:%M %p').lstrip('0').lower(), 
-                        'Actividad': evento['Actividad'],
-                        'Prioridad': evento['Prioridad'],
-                        'Duracion_Horas': duracion_horas 
-                    })
-        
-        horario_base.extend(bloques_consolidados)
+    if not latest_user_message:
+         prompt = "Genera un mensaje de bienvenida."
+    else:
+         prompt = latest_user_message['parts'][0]['text']
 
 
-    conflictos_detectados = detectar_conflictos(horario_base)
-    
-    if filtro_dia and filtro_dia.upper() == 'SINGLE_DAY' and dia_seleccionado:
-        dia_norm_buscado = normalize_day(dia_seleccionado)
-        return [item for item in horario_base if normalize_day(item['Dia']) == dia_norm_buscado], conflictos_detectados
+    # 5. Detectar intención (¡LÓGICA ACTUALIZADA!)
+    # Si el usuario pide un plan Y el bot NO acaba de enviar uno:
+    if not just_sent_schedule and any(word in prompt.lower() for word in ["planificar", "horario", "plan", "programar"]):
+        study_hours_recommendation = ml_model.predict_study_hours(5, 20, 8) 
+        return generate_schedule(prompt, study_hours_recommendation)
 
-    return horario_base, conflictos_detectados
+    # 6. Continuar el chat normal (en todos los demás casos)
+    # Esto ahora manejará el "ok muestrame" correctamente, pasando
+    # la conversación a Gemini para una respuesta natural.
+    response = model_client.generate_content(
+        contents=formatted_contents 
+    )
+
+    return {
+        "role": "assistant",
+        "text": response.text
+    }

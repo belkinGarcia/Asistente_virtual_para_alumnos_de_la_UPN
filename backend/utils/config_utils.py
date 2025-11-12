@@ -1,43 +1,38 @@
-import json
+# config_utils.py - VERIFICADO Y CORREGIDO
+
 import os
-import unicodedata
-from datetime import datetime
-import logging
+import json
+from dotenv import load_dotenv
 
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+# Carga variables de entorno (asegura que .env se lea)
+load_dotenv()
 
-# Rutas de archivos
-APP_ROOT = os.path.dirname(os.path.abspath(__file__))
-PRIORIDADES_PATH = os.path.join(APP_ROOT, '..', 'last_priorities.json') 
+# Archivos de persistencia de prioridad (para contexto del chat)
+LAST_PRIORITIES_FILE = 'last_priorities.json'
+
+
+def cargar_api_key() -> str:
+    """
+    Carga la clave API de Gemini del entorno.
+    """
+    api_key = os.getenv("GEMINI_API_KEY")
+    if not api_key:
+        raise ValueError("La clave GEMINI_API_KEY no está configurada en el archivo .env.")
+    return api_key
+
 
 def cargar_ultima_prioridad():
-    """Carga el último plan de prioridades o devuelve valores por defecto."""
-    if os.path.exists(PRIORIDADES_PATH):
+    """Carga el último plan guardado (función original)."""
+    if os.path.exists(LAST_PRIORITIES_FILE):
         try:
-            with open(PRIORIDADES_PATH, 'r') as f:
+            with open(LAST_PRIORITIES_FILE, 'r') as f:
                 return json.load(f)
         except json.JSONDecodeError:
-            logging.error("Error al leer el JSON de prioridades. Usando valores por defecto.")
-    
-    # Valores por defecto iniciales
-    return {
-        "horas_estudio_min": 15, "horas_ejercicio_min": 6, "horas_trabajo_min": 10, "sueno_min": 7, 
-        "estudio_inicio": "08:00 am", "estudio_fin": "11:00 am",
-        "ejercicio_inicio": "06:00 pm", "ejercicio_fin": "07:00 pm",
-        "trabajo_inicio": "01:00 pm", "trabajo_fin": "03:00 pm",
-        "sueno_inicio": "10:00 pm", "sueno_fin": "06:00 am",
-        "otras_actividades": []
-    }
+            print("Error: El archivo last_priorities.json está corrupto.")
+            return None
+    return None
 
-def guardar_prioridad(prioridades):
-    """Guarda el plan de prioridades en un archivo JSON."""
-    try:
-        with open(PRIORIDADES_PATH, 'w') as f:
-            json.dump(prioridades, f, indent=4)
-        logging.info("Prioridades guardadas exitosamente.")
-    except Exception as e:
-        logging.error(f"Error al guardar las prioridades: {e}")
-
-def normalize_day(day_name):
-    """Normaliza nombres de días (elimina tildes, minúsculas)."""
-    return unicodedata.normalize('NFKD', day_name).encode('ascii', 'ignore').decode('utf-8').lower()
+def guardar_prioridad(data):
+    """Guarda el plan generado para contexto futuro (función original)."""
+    with open(LAST_PRIORITIES_FILE, 'w') as f:
+        json.dump(data, f, indent=4)

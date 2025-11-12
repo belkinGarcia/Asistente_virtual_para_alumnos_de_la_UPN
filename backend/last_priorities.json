@@ -1,8 +1,8 @@
 {
-    "horas_estudio_min": 30,
-    "horas_ejercicio_min": 10,
-    "horas_trabajo_min": 25,
-    "sueno_min": 49,
+    "horas_estudio_min": 1800,
+    "horas_ejercicio_min": 600,
+    "horas_trabajo_min": 1500,
+    "sueno_min": 420,
     "estudio_inicio": "08:00 am",
     "estudio_fin": "02:00 pm",
     "ejercicio_inicio": "06:00 am",
