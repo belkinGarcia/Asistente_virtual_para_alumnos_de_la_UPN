@@ -1,38 +1,26 @@
-# config_utils.py - VERIFICADO Y CORREGIDO
+# config_utils.py - Módulo de utilidades de configuración
 
 import os
-import json
+import logging
 from dotenv import load_dotenv
 
-# Carga variables de entorno (asegura que .env se lea)
 load_dotenv()
 
-# Archivos de persistencia de prioridad (para contexto del chat)
-LAST_PRIORITIES_FILE = 'last_priorities.json'
-
-
-def cargar_api_key() -> str:
+def cargar_api_key():
     """
-    Carga la clave API de Gemini del entorno.
+    Carga la clave de la API de Gemini desde el archivo .env.
     """
+    # Se recomienda que el usuario cree un archivo .env en la raíz con:
+    # GEMINI_API_KEY="AIzaSy..."
     api_key = os.getenv("GEMINI_API_KEY")
     if not api_key:
-        raise ValueError("La clave GEMINI_API_KEY no está configurada en el archivo .env.")
+        logging.error("La variable de entorno GEMINI_API_KEY no está configurada. Usa una clave estática para pruebas.")
+        # Retorna una clave estática de prueba o lanza un error si es necesario
+        return "CLAVE_NO_CONFIGURADA_FALLARA_LLAMADA_A_GEMINI"
     return api_key
 
-
-def cargar_ultima_prioridad():
-    """Carga el último plan guardado (función original)."""
-    if os.path.exists(LAST_PRIORITIES_FILE):
-        try:
-            with open(LAST_PRIORITIES_FILE, 'r') as f:
-                return json.load(f)
-        except json.JSONDecodeError:
-            print("Error: El archivo last_priorities.json está corrupto.")
-            return None
-    return None
-
+# Esta función es un placeholder para la persistencia del horario, 
+# si se necesitara una lógica más compleja de la que tiene schedule_service.py
 def guardar_prioridad(data):
-    """Guarda el plan generado para contexto futuro (función original)."""
-    with open(LAST_PRIORITIES_FILE, 'w') as f:
-        json.dump(data, f, indent=4)
+    # Lógica de guardado de datos o de persistencia
+    pass

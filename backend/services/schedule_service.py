@@ -1,26 +1,25 @@
-# schedule_service.py - CORREGIDO (FIX DE 'list' object has no attribute 'get')
+# backend/services/schedule_service.py
 
 import os
 import json
-import google.generativeai as genai
-from google.generativeai import types
-from flask import jsonify
+import google.genai as genai
+from google.genai import types
+from flask import jsonify 
+from google.api_core import exceptions as google_exceptions # Importado para manejo de errores de API
 
 # Importaciones relativas al paquete padre (backend)
-from ..models import ml_model 
-from ..utils import config_utils
-
-# --- CONFIGURACIÓN E INICIALIZACIÓN ---
-# --- CONFIGURACIÓN E INICIALIZACIÓN ---
 try:
-    API_KEY = config_utils.cargar_api_key() 
-    genai.configure(api_key=API_KEY)
-    # Crea una instancia del modelo que usarás
-    model_client = genai.GenerativeModel('gemini-2.5-flash')
-    print("Cliente Gemini inicializado correctamente.")
-except Exception as e:
-    print(f"Error al inicializar el cliente Gemini: {e}")
-    model_client = None
+    from backend.models import ml_model 
+    from backend.utils import config_utils
+except ImportError as e:
+    # Esto ocurre si falta un __init__.py o si se ejecuta mal
+    print(f"Error al importar módulos internos: {e}. Asegúrate de ejecutar desde main.py")
+    
+# --- CONFIGURACIÓN E INICIALIZACIÓN ---
+# NOTA: La inicialización de la API KEY con genai.Client()
+# se hace en main.py. Aquí simplemente la obtenemos para usarla si es necesario
+# o confiamos en que genai.Client() sin argumentos funcione.
+# Eliminamos la inicialización con error: genai.GenerativeModel(...)
 
 # Archivos de persistencia
 LAST_PRIORITIES_FILE = 'last_priorities.json'
@@ -49,7 +48,7 @@ PLAN_SEMANAL_TOOL_DICT = {
     }
 }
 
-# ... (Funciones load/save_last_priorities omitidas por brevedad) ...
+# --- FUNCIONES DE PERSISTENCIA (Simplificadas) ---
 def load_last_priorities():
     if os.path.exists(LAST_PRIORITIES_FILE):
         with open(LAST_PRIORITIES_FILE, 'r') as f:
@@ -59,6 +58,7 @@ def load_last_priorities():
 def save_last_priorities(data):
     with open(LAST_PRIORITIES_FILE, 'w') as f:
         json.dump(data, f, indent=4)
+    # config_utils.guardar_prioridad(data) # Opcional si tienes esta función
 
 # --- FUNCIONES CORE ---
 
@@ -69,7 +69,6 @@ def format_history_for_gemini(history: list) -> list:
     """
     formatted_contents = []
     for message in history:
-        # FIX CRÍTICO: Filtra elementos que no son diccionarios
         if not isinstance(message, dict):
             continue
             
@@ -87,10 +86,10 @@ def format_history_for_gemini(history: list) -> list:
 
 def generate_schedule(prompt: str, study_hours_recommendation: float):
     """Genera un horario semanal usando la función PlanSemanal."""
-    if not model_client:
-        return {"error": "El cliente Gemini no está inicializado."}, 500
-
     try:
+        # Inicializa el cliente dentro de la función (o úsalo globalmente si prefieres)
+        client = genai.Client()
+        
         function_declaration = types.FunctionDeclaration.from_dict(PLAN_SEMANAL_TOOL_DICT)
         tool_config = types.Tool(function_declarations=[function_declaration])
         
@@ -106,17 +105,22 @@ def generate_schedule(prompt: str, study_hours_recommendation: float):
         f"horas de estudio académico a la semana..."
     )
     
-    response = model_client.generate_content(
-        contents=[{"role": "user", "parts": [{"text": prompt}]}],
-        generation_config=config, # Renombrado a generation_config
-        system_instruction=system_instruction
-    )
+    try:
+        # CORRECCIÓN CLAVE: Usar el método generate_content() del cliente
+        response = client.models.generate_content(
+            model='gemini-2.5-flash', # Especificar el modelo aquí
+            contents=[{"role": "user", "parts": [{"text": prompt}]}],
+            generation_config=config,
+            system_instruction=system_instruction
+        )
+    except google_exceptions.GoogleAPICallError as e:
+        return {"error": f"Error de API al generar contenido: {e}"}, 500
 
     if response.function_calls:
         function_call = response.function_calls[0]
         schedule_data = function_call.args
-        config_utils.guardar_prioridad(schedule_data) # Usa la función correctamente
-        
+        save_last_priorities(schedule_data) 
+
         return {
             "role": "assistant",
             "text": f"He generado un plan para ti. Deberías enfocarte en aproximadamente {study_hours_recommendation:.1f} horas de estudio a la semana.",
@@ -131,47 +135,57 @@ def generate_schedule(prompt: str, study_hours_recommendation: float):
 
 def process_chat(chat_history: list) -> dict:
     """Función de entrada principal. Maneja la conversación y detecta si se debe generar un horario."""
-    if not model_client:
-        return {"role": "assistant", "text": "Error: El servicio de IA no está disponible."}
+    
+    # Inicializa el cliente (Esto ya debería funcionar si main.py lo configuró)
+    client = genai.Client()
+    
+    # Asegúrate de que ml_model esté disponible antes de usarlo
+    if 'ml_model' not in globals() and 'ml_model' not in locals():
+         # Asigna un valor por defecto si el módulo ML no se cargó correctamente (Fase de prueba)
+         study_hours_recommendation_default = 10.0
+    else:
+         # 5, 20, 8 deberían ser datos reales del usuario
+         study_hours_recommendation_default = ml_model.predict_study_hours(5, 20, 8) 
 
-    # 1. Buscar el último mensaje del asistente EN EL HISTORIAL CRUDO
-    # 1. ...
+
+    # 1. Buscar el último mensaje del asistente
     last_assistant_message = next((
     m for m in reversed(chat_history) 
     if isinstance(m, dict) and m.get('role') == 'assistant'
     ), None)
 
     # 2. Comprobar si el bot ACABA de enviar un horario
-    # Si el último mensaje del bot tiene la clave 'horario', significa que acabamos de enviarlo.
-    # No debemos generar otro, sino continuar la conversación normal.
     just_sent_schedule = False
     if last_assistant_message and 'horario' in last_assistant_message:
         just_sent_schedule = True
 
-    # 3. Formatear el historial para Gemini (esto no cambia)
+    # 3. Formatear el historial para Gemini
     formatted_contents = format_history_for_gemini(chat_history)
 
-    # 4. Obtener el último prompt del usuario (esto no cambia)
+    # 4. Obtener el último prompt del usuario
     latest_user_message = next((m for m in reversed(formatted_contents) if m.get('role') == 'user'), None)
 
     if not latest_user_message:
-         prompt = "Genera un mensaje de bienvenida."
+          prompt = "Genera un mensaje de bienvenida."
     else:
-         prompt = latest_user_message['parts'][0]['text']
+          prompt = latest_user_message['parts'][0]['text']
 
 
-    # 5. Detectar intención (¡LÓGICA ACTUALIZADA!)
-    # Si el usuario pide un plan Y el bot NO acaba de enviar uno:
+    # 5. Detectar intención
     if not just_sent_schedule and any(word in prompt.lower() for word in ["planificar", "horario", "plan", "programar"]):
-        study_hours_recommendation = ml_model.predict_study_hours(5, 20, 8) 
-        return generate_schedule(prompt, study_hours_recommendation)
+        # Usa la recomendación de ML
+        return generate_schedule(prompt, study_hours_recommendation_default)
 
-    # 6. Continuar el chat normal (en todos los demás casos)
-    # Esto ahora manejará el "ok muestrame" correctamente, pasando
-    # la conversación a Gemini para una respuesta natural.
-    response = model_client.generate_content(
-        contents=formatted_contents 
-    )
+    # 6. Continuar el chat normal
+    try:
+        # CORRECCIÓN CLAVE: Usar el método generate_content() del cliente
+        response = client.models.generate_content(
+            model='gemini-2.5-flash', # Especificar el modelo aquí
+            contents=formatted_contents 
+        )
+    except google_exceptions.GoogleAPICallError as e:
+        return {"role": "assistant", "text": f"Error de API al continuar chat: {e}"}
+
 
     return {
         "role": "assistant",
