@@ -1,0 +1,14 @@
+# Archivos de credenciales y datos de sesión (¡CRÍTICO: NO deben subirse!)
+chat_history.json
+client_secret.json
+last_priorities.json
+token.json
+user_profile.json
+user_projects.json
+
+# Opcional: Ignorar caché y archivos temporales
+__pycache__/
+*.pyc
+*.pkl
+venv/
+.env

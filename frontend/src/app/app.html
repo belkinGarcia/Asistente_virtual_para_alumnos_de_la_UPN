@@ -1,0 +1,541 @@
+<div class="app-wrapper">
+
+  <div *ngIf="showXpAnim" class="xp-popup">
+    <div class="xp-badge">+{{xpGanado}} XP</div>
+    <div class="xp-msg">¡Sesión Registrada!</div>
+  </div>
+
+  <div *ngIf="!hasProfile" class="onboarding-container">
+    <div class="onboarding-card">
+      <h2>🚀 Configuración de Perfil IA</h2>
+      <div class="progress-dots">
+        <span [class.active]="step>=1"></span>
+        <span [class.active]="step>=2"></span>
+        <span [class.active]="step>=3"></span>
+      </div>
+      
+      <div *ngIf="step === 1" class="step-content">
+        <h3>🎓 Lo Académico</h3>
+        <div class="form-grid">
+          <div class="fg"><label>Nombre</label><input [(ngModel)]="profileData.nombre" placeholder="Tu nombre"></div>
+          <div class="fg"><label>Carrera</label><input [(ngModel)]="profileData.carrera" placeholder="Ej. Arquitectura"></div>
+        </div>
+        <div class="fg wide">
+          <label>Modalidad de Estudio</label>
+          <select [(ngModel)]="profileData.modalidad">
+            <option>Presencial</option><option>Híbrido</option><option>Virtual</option>
+          </select>
+        </div>
+        <div class="btn-row single"><button class="btn-next" (click)="step = 2">Siguiente ➡</button></div>
+      </div>
+
+      <div *ngIf="step === 2" class="step-content">
+        <h3>💼 Logística Real</h3>
+        <div class="toggle-group">
+          <label>¿Trabajas?</label>
+          <input type="checkbox" [(ngModel)]="profileData.trabaja">
+        </div>
+        <div *ngIf="profileData.trabaja" class="form-grid fade-in">
+          <div class="fg"><label>Inicio Turno</label><input type="time" [(ngModel)]="profileData.horario_trabajo_inicio"></div>
+          <div class="fg"><label>Fin Turno</label><input type="time" [(ngModel)]="profileData.horario_trabajo_fin"></div>
+        </div>
+        
+        <div class="fg wide" style="margin-top:15px">
+          <label>Transporte Diario (Ida+Vuelta): {{profileData.tiempo_transporte}} min</label>
+          <input type="range" [(ngModel)]="profileData.tiempo_transporte" min="0" max="180" step="15">
+        </div>
+        <div class="form-grid">
+          <div class="fg"><label>Tipo Transporte</label>
+            <select [(ngModel)]="profileData.transporte_tipo"><option>Conducir</option><option>Transporte Público</option><option>Caminar/Bici</option><option>N/A</option></select>
+          </div>
+          <div class="fg"><label>Carga Doméstica</label>
+            <select [(ngModel)]="profileData.carga_domestica"><option>Alta (Vivo solo)</option><option>Media (Ayudo)</option><option>Baja (Vivo con padres)</option></select>
+          </div>
+        </div>
+        <div class="btn-row"><button class="btn-prev" (click)="step = 1">⬅ Atrás</button><button class="btn-next" (click)="step = 3">Siguiente ➡</button></div>
+      </div>
+
+      <div *ngIf="step === 3" class="step-content">
+        <h3>⚡ Tu Biología</h3>
+        <div class="form-grid">
+          <div class="fg"><label>¿Cuándo rindes mejor?</label>
+            <select [(ngModel)]="profileData.cronotipo"><option>Mañana (Alondra)</option><option>Tarde</option><option>Noche (Búho)</option></select>
+          </div>
+          <div class="fg"><label>Horas Sueño Ideal</label><input type="number" [(ngModel)]="profileData.horas_sueno"></div>
+        </div>
+        <div class="fg wide" style="margin-top:15px">
+          <label>Resistencia de Estudio (Foco)</label>
+          <select [(ngModel)]="profileData.resistencia_estudio">
+            <option>Baja (25min - Pomodoro)</option>
+            <option>Media (45min - Estándar)</option>
+            <option>Alta (90min - Deep Work)</option>
+          </select>
+          <small style="color:#666; display:block; margin-top:5px">Esto define la duración de tus bloques de estudio.</small>
+        </div>
+        
+        <div class="btn-row">
+          <button class="btn-prev" (click)="step = 2">⬅ Atrás</button>
+          <button class="btn-finish" (click)="guardarPerfilInicial()" [disabled]="loading">{{ loading ? 'Analizando...' : '✨ Generar Rutina Maestra' }}</button>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <div *ngIf="hasProfile" class="main-chat-layout">
+    <div class="chat-section">
+        
+<div class="chat-header">
+            <div>
+              <h3>Asistente UPN</h3>
+              <span class="user-badge">{{profileData.nombre}}</span>
+            </div>
+            <div class="header-actions">
+              <!-- BOTÓN GOOGLE CALENDAR NUEVO -->
+              <button class="btn-exam" 
+                      [style.background]="isGoogleConnected ? '#4285F4' : '#bdc3c7'"
+                      (click)="conectarGoogle()" 
+                      title="Sincronizar con Google Calendar">
+                {{ isGoogleConnected ? '📅 Conectado' : '📅 Conectar' }}
+              </button>
+
+              <button class="btn-exam" style="background:#e74c3c; color:white;" (click)="openPomodoroModal()">⏱️ Focus</button>
+              <button class="btn-exam" style="background:#27ae60; color:white;" (click)="openCheckinModal()">✅ Check-in</button>
+              <button class="btn-icon" (click)="openDashboard()" title="Ver Progreso">📊</button>
+              <button class="btn-exam" (click)="openExamModal()">🔥 Exámenes</button>
+              <button class="btn-exam" (click)="openProjectsModal()">🏗️ Proyectos</button>
+              <button class="btn-icon" (click)="openEditModal()" title="Editar Perfil">✏️</button>
+              <button class="btn-icon danger" (click)="resetProfile()" title="Reiniciar">🔄</button>
+            </div>
+        </div>
+
+<!-- Cuerpo del Chat -->
+        <div class="chat-body">
+            <div *ngFor="let msg of chatHistory" [ngClass]="{'message-user': msg.role === 'user', 'message-bot': msg.role === 'assistant'}">
+                <div class="bubble">
+                  <p>{{ msg.text }}</p>
+                  
+                  <!-- TABLA DE HORARIO (EXISTENTE) -->
+                  <div *ngIf="msg.horario" class="schedule-container">
+                    <table class="schedule-table">
+                      <thead>
+                        <tr><th>Día</th><th>Fecha</th><th>Hora</th><th>Actividad</th><th>Tipo</th></tr>
+                      </thead>
+                      <tbody>
+                        <tr *ngFor="let item of msg.horario.planSemanal">
+                          <td><b>{{item.dia}}</b></td>
+                          <td style="font-size:0.8rem;color:#666">{{item.fecha}}</td>
+                          <td>{{item.hora_inicio}} - {{item.hora_fin}}</td>
+                          <td>{{item.actividad}}</td>
+                          <td><span class="tag" [ngClass]="getTypeClass(item.tipo)">{{item.tipo}}</span></td>
+                        </tr>
+                      </tbody>
+                    </table>
+                    <button class="btn-calendar" (click)="guardarEnCalendario(msg.horario)">📅 Guardar en Calendario</button>
+                  </div>
+
+                  <!-- NUEVO: TABLA DE PROYECTOS / HITOS -->
+                  <div *ngIf="msg.hitos" class="schedule-container">
+                    <table class="schedule-table">
+                      <thead>
+                        <tr><th>Hito</th><th>Descripción</th><th>Límite</th><th>Peso</th></tr>
+                      </thead>
+                      <tbody>
+                        <tr *ngFor="let h of msg.hitos">
+                          <td><b>{{h.titulo}}</b></td>
+                          <td style="font-size:0.9rem">{{h.descripcion}}</td>
+                          <td style="font-size:0.8rem;color:#a32e2e">{{h.fecha_limite}}</td>
+                          <td><span class="tag proyecto">{{h.peso}}%</span></td>
+                        </tr>
+                      </tbody>
+                    </table>
+                  </div>
+
+                </div>
+            </div>
+        </div>
+
+        <div class="chat-footer">
+          <input [(ngModel)]="userInput" (keyup.enter)="enviarMensaje()" placeholder="Escribe aquí..." [disabled]="loading">
+          <button (click)="enviarMensaje()" [disabled]="loading">Enviar</button>
+        </div>
+    </div>
+  </div>
+
+  <div *ngIf="showPomodoroModal" class="modal-overlay">
+    <div class="modal-card" style="text-align: center;">
+      <div class="modal-header" [style.background]="timerMode === 'Focus' ? '#ffebee' : '#e8f5e9'">
+        <h3 [style.color]="timerMode === 'Focus' ? '#c62828' : '#2e7d32'">
+          {{ timerMode === 'Focus' ? '🍅 MODO FOCUS' : '☕ DESCANSO' }}
+        </h3>
+        <button class="close-btn" (click)="closePomodoroModal()">×</button>
+      </div>
+      <div class="modal-body">
+        <div class="form-group" *ngIf="timerMode === 'Focus' && !timerRunning">
+          <input type="text" [(ngModel)]="pomodoroMateria" list="materiasListPomo" placeholder="¿Qué vas a estudiar?" style="text-align: center; font-size: 1.1rem; border: 2px solid #e0e0e0; width: 80%; padding: 10px; border-radius: 8px;">
+          <datalist id="materiasListPomo"><option *ngFor="let m of listaMateriasSugeridas" [value]="m"></option></datalist>
+        </div>
+        <div class="form-group" *ngIf="timerRunning || timerMode === 'Break'">
+          <h4 style="margin:0; color:#666; margin-bottom:10px;">{{ pomodoroMateria }}</h4>
+        </div>
+        <div class="timer-display" [class.ticking]="timerRunning">
+          {{ minutes | number:'2.0-0' }}:{{ seconds | number:'2.0-0' }}
+        </div>
+        <div class="timer-controls">
+          <button class="btn-timer-main" (click)="toggleTimer()">{{ timerRunning ? '⏸ PAUSAR' : '▶ INICIAR' }}</button>
+          <button class="btn-timer-sec" (click)="resetTimer(25)" *ngIf="!timerRunning">🔄 Reset</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+<div *ngIf="showCheckinModal" class="modal-overlay">
+    <div class="modal-card">
+      <div class="modal-header">
+        <h3>📝 Registrar Sesión</h3>
+        <button class="close-btn" (click)="closeCheckinModal()">×</button>
+      </div>
+      <div class="modal-body">
+        
+        <div class="form-grid">
+          <div class="fg wide">
+            <label>Materia Estudiada</label>
+            <input type="text" [(ngModel)]="feedbackData.materia" list="materiasList" placeholder="Ej. Cálculo II">
+            <datalist id="materiasList"><option *ngFor="let m of listaMateriasSugeridas" [value]="m"></option></datalist>
+          </div>
+        </div>
+
+        <div class="form-grid">
+          <div class="fg">
+            <label>Tiempo (Horas)</label>
+            <input type="number" [(ngModel)]="feedbackData.horas_reales" step="0.5" placeholder="2.0">
+          </div>
+          <div class="fg">
+            <label>Dificultad Percibida</label>
+            <select [(ngModel)]="feedbackData.dificultad">
+              <option>fácil</option><option>media</option><option>difícil</option>
+            </select>
+          </div>
+        </div>
+        
+        <div class="form-grid" style="margin-top: 15px; background: #f8f9fa; padding: 15px; border-radius: 12px;">
+          <div class="fg wide slider-container">
+            <div style="display:flex; justify-content:space-between; margin-bottom:5px;">
+              <label>Nivel de Energía Final</label>
+              <strong [style.color]="feedbackData.nivel_energia < 3 ? '#e74c3c' : '#27ae60'">
+                {{feedbackData.nivel_energia}}/5
+              </strong>
+            </div>
+            <input type="range" [(ngModel)]="feedbackData.nivel_energia" min="1" max="5">
+            <div style="display:flex; justify-content:space-between; font-size:0.7rem; color:#999;">
+              <span>💀 Muerto</span>
+              <span>⚡ A tope</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="form-grid" style="margin-top:15px;">
+            <div class="fg">
+              <label>📍 ¿Dónde?</label>
+              <select [(ngModel)]="feedbackData.lugar_estudio">
+                <option *ngFor="let l of listaLugares">{{l}}</option>
+              </select>
+            </div>
+            <div class="fg">
+              <label>Contexto Físico</label>
+              <select [(ngModel)]="feedbackData.actividad_fisica">
+                <option *ngFor="let a of listaActividadFisica">{{a}}</option>
+              </select>
+            </div>
+        </div>
+
+      </div>
+      <div class="modal-footer">
+        <button class="btn-cancel" (click)="closeCheckinModal()">Cancelar</button>
+        <button class="btn-save" (click)="registrarSesion()" [disabled]="isUpdating">
+          Guardar Sesión
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <div *ngIf="showDashboard" class="modal-overlay">
+    <div class="modal-card wide-modal dashboard-modal">
+      <div class="modal-header">
+        <h3>📊 Tu Progreso RPG</h3>
+        <button class="close-btn" (click)="closeDashboard()">×</button>
+      </div>
+      <div class="modal-body dashboard-body">
+        
+        <div class="player-stats-container">
+          <div class="level-badge">
+            <span class="lvl-label">NIVEL</span>
+            <span class="lvl-num">{{stats.nivel}}</span>
+          </div>
+          <div class="xp-bar-container">
+            <div class="xp-info"><span>XP</span><span>{{stats.xp_actual}} / {{stats.xp_siguiente}}</span></div>
+            <div class="xp-track"><div class="xp-fill" [style.width.%]="(stats.xp_actual / stats.xp_siguiente) * 100"></div></div>
+          </div>
+          <div class="streak-badge" title="Días seguidos">
+            <span class="fire">🔥</span><span class="days">{{stats.racha_dias}} días</span>
+          </div>
+        </div>
+
+        <div class="kpi-grid">
+          <div class="kpi-card"><div class="kpi-icon">⏳</div><div class="kpi-val">{{stats.total_horas}}</div><div class="kpi-label">Horas Totales</div></div>
+          <div class="kpi-card"><div class="kpi-icon">🎯</div><div class="kpi-val">{{stats.tasa_exito}}%</div><div class="kpi-label">Efectividad</div></div>
+          <div class="kpi-card"><div class="kpi-icon">📚</div><div class="kpi-val">{{stats.sesiones_totales}}</div><div class="kpi-label">Sesiones</div></div>
+          <div class="kpi-card"><div class="kpi-icon">⚡</div><div class="kpi-val">{{stats.promedio_energia}}</div><div class="kpi-label">Energía</div></div>
+        </div>
+
+        <div class="chart-box" style="margin-bottom: 20px;">
+          <h4>🏆 Logros Desbloqueados</h4>
+          <div class="achievements-grid">
+            <div *ngFor="let logro of stats.logros" class="achievement-card">
+              <div class="ach-icon">{{logro.icon}}</div>
+              <div class="ach-info"><strong>{{logro.title}}</strong><span>{{logro.desc}}</span></div>
+            </div>
+            <div *ngIf="stats.logros.length === 0" class="empty-state">Sigue estudiando para ganar medallas.</div>
+          </div>
+        </div>
+
+        <div class="charts-row">
+          <div class="chart-box">
+            <h4>Top Materias</h4>
+            <div class="bar-chart-container">
+              <div *ngFor="let item of stats.materias_chart" class="bar-group">
+                <div class="bar-label">{{item.label}}</div>
+                <div class="bar-track"><div class="bar-fill" [style.width.%]="item.percent"></div></div>
+                <div class="bar-value">{{item.value}}h</div>
+              </div>
+            </div>
+          </div>
+          <div class="chart-box">
+            <h4>Energía Reciente</h4>
+            <div class="trend-chart-container">
+              <div *ngFor="let item of stats.energia_chart" class="trend-col">
+                <div class="trend-bar" [style.height.%]="item.percent"></div>
+                <div class="trend-label">{{item.label}}</div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </div>
+
+  <div *ngIf="showProjectsModal" class="modal-overlay">
+    <div class="modal-card wide-modal">
+      <div class="modal-header">
+        <h3>🏗️ Gestor de Proyectos</h3>
+        <button class="close-btn" (click)="closeProjectsModal()">×</button>
+      </div>
+      <div class="modal-body">
+        
+        <div *ngIf="!activeProject" class="projects-list-view">
+          <h4>Mis Proyectos</h4>
+          <div class="projects-grid">
+            <div *ngFor="let p of projectsList" class="project-card" (click)="selectProject(p)">
+              <div class="p-header"><strong>{{p.nombre}}</strong><span class="p-date">{{p.fecha_fin}}</span></div>
+              <div class="p-desc">{{p.descripcion}}</div>
+              <div class="p-progress">
+                <div class="bar"><div class="fill" [style.width.%]="p.progreso"></div></div><span>{{p.progreso}}%</span>
+              </div>
+            </div>
+            <div class="project-card new" (click)="activeProject = null">
+              <div class="new-content">
+                <h4>Nuevo Proyecto</h4>
+                <input [(ngModel)]="newProjectData.nombre" placeholder="Nombre">
+                <input [(ngModel)]="newProjectData.descripcion" placeholder="Descripción">
+                <input type="date" [(ngModel)]="newProjectData.fecha_fin">
+                <button (click)="createProject()">Crear con IA ✨</button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div *ngIf="activeProject" class="project-detail-view">
+          <button class="btn-back" (click)="activeProject = null">⬅ Volver</button>
+          <div class="detail-header">
+            <h2>{{activeProject.nombre}}</h2>
+            <button class="btn-delete" (click)="deleteProject(activeProject.id)">🗑️</button>
+          </div>
+          <div class="milestones-list">
+            <div *ngFor="let m of activeProject.hitos" class="milestone-item" [class.done]="m.completado">
+              <div class="chk">
+                <input type="checkbox" [(ngModel)]="m.completado" (change)="toggleMilestone(m)">
+              </div>
+              <div class="ms-content">
+                <strong>{{m.titulo}}</strong>
+                <p>{{m.descripcion}}</p>
+                <span class="ms-date">📅 {{m.fecha_limite}}</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </div>
+
+  <div *ngIf="showExamModal" class="modal-overlay">
+    <div class="modal-card wide-modal" [class.crisis-border]="isCrisisMode">
+      <div class="modal-header" [class.crisis-header]="isCrisisMode" [class.warning-header]="!isCrisisMode">
+        <div class="header-title-row">
+          <h3>{{ isCrisisMode ? '🚑 MODO S.O.S.' : '🔥 Exámenes' }}</h3>
+          <div class="crisis-toggle">
+            <span class="label">Crisis?</span>
+            <label class="switch-crisis">
+              <input type="checkbox" [(ngModel)]="isCrisisMode">
+              <span class="slider round"></span>
+            </label>
+          </div>
+        </div>
+        <button class="close-btn" (click)="closeExamModal()">×</button>
+      </div>
+      <div class="modal-body">
+        <div class="exams-list">
+          <div *ngFor="let exam of examsList; let i = index" class="exam-row-advanced" [class.crisis-row]="isCrisisMode">
+            
+            <div class="row-top">
+              <div class="fg" style="flex:2">
+                <label>Materia</label>
+                <input [(ngModel)]="exam.materia" placeholder="Ej. Cálculo Integral">
+              </div>
+              <div class="fg">
+                <label>Fecha</label>
+                <input type="date" [(ngModel)]="exam.fecha">
+              </div>
+              <div class="fg">
+                <label>Hora</label>
+                <input type="time" [(ngModel)]="exam.hora">
+              </div>
+              <div class="fg">
+                <label>Duración (h)</label>
+                <input type="number" [(ngModel)]="exam.duracion">
+              </div>
+            </div>
+
+            <div class="form-grid" style="margin-top: 15px; margin-bottom: 5px;">
+              <div class="fg wide">
+                <label>Temas Clave (Separados por comas)</label>
+                <input [(ngModel)]="exam.temas" placeholder="Ej: Integrales por partes, Sustitución trigonométrica...">
+              </div>
+            </div>
+
+            <div class="row-mid">
+              <div class="fg slider-container">
+                <label>Nivel de Confianza: {{exam.confianza}}%</label>
+                <input type="range" [(ngModel)]="exam.confianza" min="0" max="100">
+              </div>
+            </div>
+
+            <div class="row-bottom">
+              <button class="btn-remove-adv" (click)="removeExamRow(i)">🗑️</button>
+            </div>
+
+          </div>
+        </div>
+        <button class="btn-add-row" (click)="addExamRow()">+ Añadir Examen</button>
+      </div>
+      <div class="modal-footer">
+        <button class="btn-cancel" (click)="closeExamModal()">Cancelar</button>
+        <button class="btn-save" [class.crisis-btn]="isCrisisMode" [class.war-mode]="!isCrisisMode" (click)="generateExamPlan()" [disabled]="isUpdating">
+          {{ isUpdating ? '...' : (isCrisisMode ? 'ACTIVAR PROTOCOLO' : 'Generar Plan') }}
+        </button>
+      </div>
+    </div>
+  </div>
+
+<div *ngIf="showEditModal" class="modal-overlay">
+    <div class="modal-card wide-modal">
+      <div class="modal-header">
+        <h3>📝 Editar Perfil Completo</h3>
+        <button class="close-btn" (click)="closeEditModal()">×</button>
+      </div>
+      <div class="modal-body">
+        
+        <h4 style="color:#6c5ce7; margin-top:0; border-bottom:1px solid #eee; padding-bottom:5px;">🎓 Datos Académicos</h4>
+        <div class="form-grid">
+          <div class="fg"><label>Nombre</label><input [(ngModel)]="editData.nombre"></div>
+          <div class="fg"><label>Carrera</label><input [(ngModel)]="editData.carrera"></div>
+        </div>
+        <div class="form-grid">
+          <div class="fg wide">
+            <label>Modalidad</label>
+            <select [(ngModel)]="editData.modalidad">
+              <option>Presencial</option><option>Híbrido</option><option>Virtual</option>
+            </select>
+          </div>
+        </div>
+
+        <h4 style="color:#6c5ce7; margin-top:20px; border-bottom:1px solid #eee; padding-bottom:5px;">💼 Logística y Tiempo</h4>
+        <div class="form-grid">
+          <div class="fg wide">
+            <div class="toggle-group" style="border:none; padding:0;">
+              <label>¿Trabajas?</label>
+              <input type="checkbox" [(ngModel)]="editData.trabaja">
+            </div>
+          </div>
+        </div>
+        
+        <div *ngIf="editData.trabaja" class="form-grid fade-in" style="background:#f9f9fb; padding:10px; border-radius:8px; margin-bottom:10px;">
+          <div class="fg"><label>Inicio Turno</label><input type="time" [(ngModel)]="editData.horario_trabajo_inicio"></div>
+          <div class="fg"><label>Fin Turno</label><input type="time" [(ngModel)]="editData.horario_trabajo_fin"></div>
+        </div>
+
+        <div class="form-grid">
+          <div class="fg">
+            <label>Transporte (Minutos/Día): {{editData.tiempo_transporte}}m</label>
+            <input type="range" [(ngModel)]="editData.tiempo_transporte" min="0" max="180" step="15">
+          </div>
+          <div class="fg">
+            <label>Medio de Transporte</label>
+            <select [(ngModel)]="editData.transporte_tipo">
+              <option>Conducir</option><option>Transporte Público</option><option>Caminar/Bici</option><option>N/A</option>
+            </select>
+          </div>
+        </div>
+        <div class="form-grid">
+          <div class="fg wide">
+            <label>Carga Doméstica</label>
+            <select [(ngModel)]="editData.carga_domestica">
+              <option>Alta (Vivo solo)</option><option>Media (Ayudo)</option><option>Baja (Vivo con padres)</option>
+            </select>
+          </div>
+        </div>
+
+        <h4 style="color:#6c5ce7; margin-top:20px; border-bottom:1px solid #eee; padding-bottom:5px;">⚡ Biología y Energía</h4>
+        <div class="form-grid">
+          <div class="fg">
+            <label>Cronotipo (Energía)</label>
+            <select [(ngModel)]="editData.cronotipo">
+              <option>Mañana (Alondra)</option><option>Tarde</option><option>Noche (Búho)</option>
+            </select>
+          </div>
+          <div class="fg">
+            <label>Horas de Sueño</label>
+            <input type="number" [(ngModel)]="editData.horas_sueno">
+          </div>
+        </div>
+        <div class="form-grid">
+          <div class="fg wide">
+            <label>Resistencia Mental (Duración Sesión)</label>
+            <select [(ngModel)]="editData.resistencia_estudio">
+              <option>Baja (25min - Pomodoro)</option>
+              <option>Media (45min - Estándar)</option>
+              <option>Alta (90min - Deep Work)</option>
+            </select>
+          </div>
+        </div>
+
+      </div>
+      <div class="modal-footer">
+        <button class="btn-cancel" (click)="closeEditModal()">Cancelar</button>
+        <button class="btn-save" (click)="updateProfile()">Guardar Cambios</button>
+      </div>
+    </div>
+  </div>
+
+</div>

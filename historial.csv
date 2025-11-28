@@ -1,11 +1,2 @@
-Materia,Dificultad_Escala,Horas_Estudio_Total,Calificacion
-Cálculo,5,15,8
-Cálculo,4,12,7
-Historia,2,5,9
-Historia,3,8,8
-Física,5,18,6
-Física,6,20,7
-Cálculo,7,25,9
-Física,8,28,7
-Cálculo,9,30,8
-redes,9,30,9
+Materia,Horas_Estudio_Real,Dificultad_Cat,Dificultad_Num,Nivel_Energia,Cumplio_Objetivo,Factor_Bloqueo,Calificacion,Horas_Sueno,Lugar_Estudio,Actividad_Fisica,Dia_Semana,Fecha,Tipo_Sesion
+Calculo,2.0,media,2,3,sí,Ninguno,0,7,Casa,Ninguna,Viernes,2025-11-28,Manual
